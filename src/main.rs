@@ -182,10 +182,10 @@ impl CacheLayer {
     }
 
     fn has_liked(&self, user_id: &str, post_id: &str) -> bool {
+        // Avoid returning a reference to a temporary by cloning the HashMap
         self.actions
             .get(user_id)
-            .and_then(|actions| actions.get(post_id))
-            .copied()
+            .map(|actions| actions.get(post_id).copied().unwrap_or(false))
             .unwrap_or(false)
     }
 
@@ -244,9 +244,11 @@ impl MessageQueue {
                 let mut worker_id = 0;
                 while let Some(message) = receiver.recv().await {
                     // Round-robin worker assignment
-                    let worker = FanoutWorker::new(worker_id, cache.clone());
-                    tokio::spawn(worker.process(message));
-
+                    let worker = Arc::new(FanoutWorker::new(worker_id, cache.clone()));
+                    let worker_clone = worker.clone();
+                    tokio::spawn(async move {
+                        worker_clone.process(message).await;
+                    });
                     worker_id = (worker_id + 1) % worker_count;
                 }
             }
